@@ -11,47 +11,61 @@ import random
 
 class SignupView(generics.CreateAPIView):
     serializer_class = UserSerializer
+    permission_classes = [permissions.AllowAny]  # Allow anyone to register
 
     def post(self, request, *args, **kwargs):
+        print(request.data)  # Debug: Check incoming data
         serializer = self.get_serializer(data=request.data)
+        
         if serializer.is_valid():
-            # Only superusers or existing staff can create staff (admin) accounts
             is_staff = serializer.validated_data.get('is_staff', False)
-            if is_staff and not request.user.is_authenticated:  # Restrict admin creation to authenticated staff or superusers
+
+            # Restrict staff user creation
+            if is_staff and not request.user.is_authenticated:
                 return Response({'error': 'Only authenticated staff or superusers can create admin accounts'}, status=status.HTTP_403_FORBIDDEN)
-            
+
             user = serializer.save()
-            token, created = Token.objects.get_or_create(user=user)
+            token, _ = Token.objects.get_or_create(user=user)
+
             return Response({
                 'message': 'User registered successfully!',
                 'token': token.key,
                 'is_staff': user.is_staff,
                 'status': user.status,
             }, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class LoginView(generics.GenericAPIView):
     serializer_class = LoginSerializer
+    permission_classes = [permissions.AllowAny]  # Allow anyone to register
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            email = serializer.validated_data['email']
-            password = serializer.validated_data['password']
-            user = authenticate(request, email=email, password=password)
-            if user and user.is_active:  # Check if user is active
-                token, created = Token.objects.get_or_create(user=user)
-                return Response({
-                    'message': 'Login successful!',
-                    'token': token.key,
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data['email']
+        password = serializer.validated_data['password']
+        
+        user = authenticate(email=email, password=password)
+        
+        if user:
+            token, _ = Token.objects.get_or_create(user=user)
+            return Response({
+                'message': 'Login successful!',
+                'token': token.key,
+                'user': {
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'email': user.email,
+                    'phone_number': user.phone_number,
                     'is_staff': user.is_staff,
-                    'status': user.status,
-                }, status=status.HTTP_200_OK)
-            elif not user:
-                return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
-            else:
-                return Response({'error': 'Account is deactivated'}, status=status.HTTP_403_FORBIDDEN)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                    'status': user.status
+                }
+            }, status=status.HTTP_200_OK)
+        
+        return Response({'error': 'Invalid email or password'}, status=status.HTTP_401_UNAUTHORIZED)
 
 class PasswordResetView(generics.GenericAPIView):
     serializer_class = PasswordResetSerializer
